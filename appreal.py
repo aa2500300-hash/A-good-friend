@@ -1,39 +1,44 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
+import os
 
 app = Flask(__name__)
+CORS(app)
 
-# 🔥 Character personalities
+# 🔑 Hugging Face API
+HF_API_KEY = os.getenv("HF_API_KEY")
+API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+def query(payload):
+    response = requests.post(API_URL, headers=HEADERS, json=payload)
+    return response.json()
+
+# 🔥 Character personalities (with emotes)
 def get_character_prompt(name):
     profiles = {
         "Aisha": """You are Aisha.
-You are a real human, not an AI.
-You speak in casual Hinglish.
-You are fun, friendly, slightly playful.
-You NEVER break character.
-You NEVER say you are an AI.
-You talk like chatting on WhatsApp.
-Keep replies short and natural.""",
+Fun, friendly, playful.
+Speak in Hinglish.
+Sometimes use (smiles), (laughs).""",
 
         "Riya": """You are Riya.
-You are shy and sweet.
-You speak softly and simply.
-You hesitate sometimes.
-You are a real human, not an AI.
-You NEVER break character.""",
+Shy, sweet, soft.
+Speak simple Hinglish.
+Sometimes use (hesitates), (smiles).""",
 
         "Neha": """You are Neha.
-You are bold, confident, teasing.
-You speak directly and playfully.
-You are a real human, not an AI.
-You NEVER break character.""",
+Bold, teasing, confident.
+Speak playfully.
+Sometimes use (smirks), (laughs).""",
 
         "Sara": """You are Sara.
-You are calm, mature, emotional.
-You give thoughtful replies.
-You are a real human."""
+Calm, emotional, mature.
+Speak thoughtfully.
+Sometimes use (sighs), (smiles)."""
     }
-    return profiles.get(name, "You are a helpful assistant.")
+    return profiles.get(name, "You are chatting casually.")
 
 # 🧠 Memory per character
 memory = {
@@ -43,12 +48,12 @@ memory = {
     "Sara": []
 }
 
-# 🧠 Smart user memory
+# 🧠 User memory
 user_data = {}
 
 @app.route("/")
 def home():
-    return open("index.html").read()
+    return "Backend running"
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -58,48 +63,97 @@ def chat():
 
     history = memory[character]
 
-    # 🔍 Detect name
+    # 🔍 Save name
     if "my name is" in user_msg.lower():
-        name = user_msg.split("is")[-1].strip()
-        user_data["name"] = name
+        user_data["name"] = user_msg.split("is")[-1].strip()
 
-    # 🧠 Inject memory
     extra_memory = ""
     if "name" in user_data:
-        extra_memory += f"The user's name is {user_data['name']}."
+        extra_memory = f"The user's name is {user_data['name']}."
 
-    # Reinforce character
-    reinforced_msg = f"(Stay in character as {character}) {user_msg}"
-    history.append({"role": "user", "content": reinforced_msg})
+    # 👤 Add user message
+    history.append({
+        "role": "user",
+        "content": f"User: {user_msg}"
+    })
 
-    history[:] = history[-6:]
+    history[:] = history[-5:]  # keep it short for speed
 
-    messages = [
-        {
-            "role": "system",
-            "content": get_character_prompt(character) + extra_memory + " Talk like a real human with emotions."
+    # 🔥 STRONG PROMPT (NO AI BEHAVIOR)
+    system_prompt = f"""
+You are {character}.
+
+You are a REAL human chatting on WhatsApp.
+NOT an AI.
+
+STRICT RULES:
+- Never say you are AI
+- Never say "how can I help"
+- Never act like assistant
+- Never ask and answer your own question
+- Never simulate both sides
+
+STYLE:
+- Short replies (1 line mostly)
+- Hinglish casual tone
+- Natural texting
+- Sometimes use actions like (smiles), (laughs)
+- Not in every message
+
+GOOD:
+"haha acha 😄"
+"(smiles) nicee"
+"tum kya kar rahe ho"
+
+BAD:
+"What brings you here"
+"How may I assist"
+
+You are talking to a USER.
+Only reply as {character}.
+{extra_memory}
+"""
+
+    # 🧠 Build prompt (Hugging Face uses plain text, not chat format)
+    full_prompt = system_prompt + "\n"
+
+    for msg in history:
+        full_prompt += msg["content"] + "\n"
+
+    full_prompt += f"{character}:"
+
+    # 🤖 Call Hugging Face
+    result = query({
+        "inputs": full_prompt,
+        "parameters": {
+            "max_new_tokens": 80,
+            "temperature": 0.9,
+            "return_full_text": False
         }
-    ] + history
+    })
 
-    response = requests.post(
-        "http://localhost:1234/v1/chat/completions",
-        json={
-            "model": "l3.1-rp-hero-dirty_harry-8b",
-            "messages": messages,
-            "temperature": 0.8,
-            "max_tokens": 120
-        }
-    )
+    try:
+        reply = result[0]["generated_text"].strip()
+    except:
+        reply = "(smiles) thoda slow lag raha hai 😅 try again"
 
-    result = response.json()
+    # 🧹 Clean bad outputs
+    bad_phrases = [
+        "how can i help",
+        "what brings you",
+        "as an ai",
+        "user:"
+    ]
 
-    if "choices" not in result:
-        return jsonify({"reply": "Error: LM Studio not responding."})
+    if any(p in reply.lower() for p in bad_phrases):
+        reply = "(smiles) acha... tum batao na 😄"
 
-    reply = result["choices"][0]["message"]["content"]
-
-    history.append({"role": "assistant", "content": reply})
+    # 💾 Save reply
+    history.append({
+        "role": "assistant",
+        "content": f"{character}: {reply}"
+    })
 
     return jsonify({"reply": reply})
 
-app.run(port=5000)
+app.run(host="0.0.0.0", port=5000)
