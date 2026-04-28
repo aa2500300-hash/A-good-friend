@@ -25,7 +25,6 @@ body {
   align-items: center;
   padding: 10px;
   cursor: pointer;
-  transition: 0.2s;
 }
 
 .chat-item:hover {
@@ -85,8 +84,6 @@ body {
   margin: 5px;
   border-radius: 10px;
   max-width: 60%;
-  position: relative;
-  animation: fadeIn 0.2s ease;
 }
 
 .user {
@@ -101,12 +98,6 @@ body {
 .time {
   font-size: 10px;
   opacity: 0.6;
-  margin-top: 2px;
-}
-
-@keyframes fadeIn {
-  from {opacity: 0; transform: translateY(5px);}
-  to {opacity: 1; transform: translateY(0);}
 }
 
 /* Footer */
@@ -174,7 +165,7 @@ let chats = {
 
 let current = "Aisha";
 
-/* Sidebar load */
+/* Sidebar */
 let sidebar = document.getElementById("sidebar");
 for (let name in characters){
   sidebar.innerHTML += `
@@ -184,7 +175,7 @@ for (let name in characters){
     </div>`;
 }
 
-/* Switch chat */
+/* Switch */
 function switchChat(name){
   current = name;
   document.getElementById("name").innerText = name;
@@ -192,7 +183,7 @@ function switchChat(name){
   loadChat();
 }
 
-/* Load messages */
+/* Load chat */
 function loadChat(){
   let chatDiv = document.getElementById("chat");
   chatDiv.innerHTML = "";
@@ -202,7 +193,7 @@ function loadChat(){
   });
 }
 
-/* Message template */
+/* Message UI */
 function messageHTML(text, type, time){
   return `
   <div class="msg ${type}">
@@ -225,14 +216,13 @@ function handleKey(e){
   }
 }
 
-/* Send */
+/* 🔥 MAIN FIXED SEND FUNCTION */
 async function send(){
   let input = document.getElementById("msg");
   let msg = input.value.trim();
   if(!msg) return;
 
   let chatDiv = document.getElementById("chat");
-
   let time = getTime();
 
   chats[current].push({type:"user", text:msg, time});
@@ -246,21 +236,33 @@ async function send(){
 
   document.getElementById("status").innerText = "typing...";
 
-  let res = await fetch("https://a-good-friend.onrender.com/chat", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({message:msg, character:current})
-  });
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 sec max
 
-  let data = await res.json();
+    let res = await fetch("https://a-good-friend.onrender.com/chat", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({message:msg, character:current}),
+      signal: controller.signal
+    });
 
-  typing.remove();
-  document.getElementById("status").innerText = "online";
+    clearTimeout(timeout);
 
-  let replyTime = getTime();
+    let data = await res.json();
 
-  chats[current].push({type:"bot", text:data.reply, time:replyTime});
-  chatDiv.innerHTML += messageHTML(data.reply,"bot",replyTime);
+    typing.remove();
+    document.getElementById("status").innerText = "online";
+
+    let replyTime = getTime();
+
+    chats[current].push({type:"bot", text:data.reply, time:replyTime});
+    chatDiv.innerHTML += messageHTML(data.reply,"bot",replyTime);
+
+  } catch (err) {
+    typing.innerText = "Server sleeping 😴 try again...";
+    document.getElementById("status").innerText = "offline";
+  }
 
   chatDiv.scrollTop = chatDiv.scrollHeight;
 }
