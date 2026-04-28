@@ -7,12 +7,13 @@ app = Flask(__name__)
 CORS(app)
 
 # 🔑 Hugging Face API
-HF_API_KEY = os.getenv("HF_API_KEY")
+HF_API_KEY = os.environ.get("HF_API_KEY")
+
 API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 def query(payload):
-    response = requests.post(API_URL, headers=HEADERS, json=payload)
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    response = requests.post(API_URL, headers=headers, json=payload)
     return response.json()
 
 # 🔥 Character personalities (with emotes)
