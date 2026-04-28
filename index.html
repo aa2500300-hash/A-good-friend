@@ -246,7 +246,7 @@ async function send(){
 
   document.getElementById("status").innerText = "typing...";
 
-  let res = await fetch("/chat", {
+  let res = await fetch("https://a-good-friend.onrender.com/chat", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({message:msg, character:current})
