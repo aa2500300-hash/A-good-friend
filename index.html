@@ -238,7 +238,7 @@ async function send(){
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 sec max
+    const timeout = setTimeout(() => controller.abort(), 60000); // 30 sec max
 
     let res = await fetch("https://a-good-friend.onrender.com/chat", {
       method:"POST",
