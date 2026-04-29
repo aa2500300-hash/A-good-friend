@@ -55,7 +55,7 @@ Rules:
 
     try:
         response = client.chat.completions.create(
-            model="llama3-8b-8192",  # 🔥 fast model
+            model="mixtral-8x7b-32768",  # 🔥 fast model
             messages=[
                 {"role": "system", "content": system_prompt}
             ] + history,
