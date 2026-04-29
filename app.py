@@ -1,16 +1,17 @@
-from flask import Flask, request, jsonify
-import requests
-import json
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import requests, os
 import re
 from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)
+
+# This gets auto-patched to localhost:8000 by Cell 5
+LLM_URL = "http://localhost:8000/v1/chat/completions"
 
 # ─────────────────────────────────────────────
 #  CHARACTER PROMPTS
-#  Fill in each character's personality below.
-#  Keep the structure — only edit the content
-#  inside the triple-quoted strings.
 # ─────────────────────────────────────────────
 
 def get_character_prompt(name):
@@ -49,11 +50,8 @@ You're REAL woman, not AI. Medium thoughtful dirty replies."""
     }
     return profiles.get(name, "You are a helpful assistant.")
 
-
 # ─────────────────────────────────────────────
 #  MEMORY STORE
-#  Stores full conversation + extracted facts
-#  per character, per session.
 # ─────────────────────────────────────────────
 
 memory = {
@@ -63,13 +61,10 @@ memory = {
     "Sara":  {"history": [], "facts": {}}
 }
 
-MAX_HISTORY = 10   # messages kept per character (increase for longer memory)
-
+MAX_HISTORY = 10
 
 # ─────────────────────────────────────────────
 #  FACT EXTRACTION
-#  Automatically picks up things the user says
-#  about themselves so characters remember.
 # ─────────────────────────────────────────────
 
 FACT_PATTERNS = [
@@ -84,16 +79,13 @@ FACT_PATTERNS = [
 ]
 
 def extract_facts(text, facts_dict):
-    """Pull user facts from their message and store them."""
     lower = text.lower()
     for pattern, key in FACT_PATTERNS:
         match = re.search(pattern, lower)
         if match:
             facts_dict[key] = match.group(1).strip().title()
 
-
 def build_memory_context(facts_dict):
-    """Turn stored facts into a natural context string for the system prompt."""
     if not facts_dict:
         return ""
     lines = []
@@ -109,42 +101,32 @@ def build_memory_context(facts_dict):
         lines.append(f"The user mentioned they like: {facts_dict['preference']}.")
     return "\n".join(lines)
 
-
-# ─────────────────────────────────────────────
-#  CONVERSATION CONTINUITY HELPERS
-# ─────────────────────────────────────────────
-
 def build_continuity_note(history):
-    """Give the model a brief recap of recent topics so it doesn't forget."""
     if len(history) < 4:
         return ""
-    # Summarise last 2 user turns
     recent_user_msgs = [m["content"] for m in history if m["role"] == "user"][-2:]
     topics = " / ".join(recent_user_msgs)
     return f"\nRecent conversation topics: {topics[:200]}"
 
-
 def trim_history(history, max_turns=MAX_HISTORY):
-    """Keep history within limit but always preserve the first exchange for context."""
     if len(history) > max_turns:
         history[:] = history[:2] + history[-(max_turns - 2):]
-
 
 # ─────────────────────────────────────────────
 #  ROUTES
 # ─────────────────────────────────────────────
 
 @app.route("/")
-def home():
-    return open("index.html", encoding="utf-8").read()
-
+def index():
+    return send_from_directory(".", "index.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
+    data = request.get_json()
     user_msg  = data.get("message", "").strip()
     character = data.get("character", "Aisha")
-
+    
+    # Maintain compatibility with provided character-based memory
     if character not in memory:
         return jsonify({"reply": "Unknown character."}), 400
 
@@ -152,10 +134,8 @@ def chat():
     history  = char_mem["history"]
     facts    = char_mem["facts"]
 
-    # ── Extract & store any new facts from this message
     extract_facts(user_msg, facts)
 
-    # ── Build system prompt
     base_prompt      = get_character_prompt(character).strip()
     memory_context   = build_memory_context(facts)
     continuity_note  = build_continuity_note(history)
@@ -176,49 +156,28 @@ def chat():
 - Never repeat the same opener or phrase twice in a row.
 """
 
-    # ── Append user message to history
     history.append({"role": "user", "content": user_msg})
-
-    # ── Trim to keep context window manageable
     trim_history(history)
 
-    # ── Build full message list for LLM
     messages = [{"role": "system", "content": system_prompt}] + history
 
-    # ── Call LM Studio
     try:
-        response = requests.post(
-    "http://localhost:1234/v1/chat/completions",
-    json={
-        "model": "l3.1-rp-hero-dirty_harry-8b",
-        "messages": messages,
-        "temperature": 0.85,
-        "top_p": 0.92,
-        "repetition_penalty": 1.12,
-        "max_tokens": 80        # reduced from 150
-    },
-    timeout=None                  # increased from 30
-)
+        response = requests.post(LLM_URL, json={
+            "messages": messages,
+            "max_tokens": 512,
+            "temperature": 0.8,
+            "repeat_penalty": 1.05,
+            "stream": False
+        }, timeout=60)
+        
         result = response.json()
-    except requests.exceptions.ConnectionError:
-        return jsonify({"reply": "⚠️ LM Studio is not running. Start it and load your model first."})
-    except requests.exceptions.Timeout:
-        return jsonify({"reply": "⚠️ Model is taking too long. Try a shorter prompt or restart LM Studio."})
+        reply = result["choices"][0]["message"]["content"]
+        history.append({"role": "assistant", "content": reply})
+        return jsonify({"reply": reply, "history": history})
+
     except Exception as e:
-        return jsonify({"reply": f"⚠️ Unexpected error: {str(e)}"})
+        return jsonify({"reply": "Model is loading, please try again in a moment! 🔄", "history": history})
 
-    if "choices" not in result:
-        return jsonify({"reply": "⚠️ LM Studio returned an unexpected response. Check the server logs."})
-
-    reply = result["choices"][0]["message"]["content"].strip()
-
-    # ── Store assistant reply in history
-    history.append({"role": "assistant", "content": reply})
-
-    return jsonify({"reply": reply})
-
-
-# ── Clear a character's memory (optional endpoint)
 @app.route("/reset/<character>", methods=["POST"])
 def reset_memory(character):
     if character in memory:
@@ -226,8 +185,6 @@ def reset_memory(character):
         return jsonify({"status": f"{character}'s memory cleared."})
     return jsonify({"status": "Character not found."}), 404
 
-
-# ── Health check
 @app.route("/status")
 def status():
     return jsonify({
@@ -241,6 +198,5 @@ def status():
         }
     })
 
-
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
