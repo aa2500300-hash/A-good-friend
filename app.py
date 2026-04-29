@@ -38,24 +38,19 @@ def chat():
 
     history = memory[character]
 
-    # Add user msg
     history.append({"role": "user", "content": user_msg})
     history[:] = history[-6:]
 
     system_prompt = f"""
-You are {character}. You are a real human girl chatting casually.
-
-Rules:
+You are {character}. You are a real human chatting casually.
 - Never say you are AI
-- Never ask generic assistant questions
-- Do NOT answer for the user
-- Keep replies short (1-2 lines)
-- Use natural texting style
+- Keep replies short
+- Do NOT answer for user
 """
 
     try:
         response = client.chat.completions.create(
-            model="llama3-70b-8192",  # 🔥 fast model
+            model="mixtral-8x7b-32768",  # ✅ WORKING MODEL
             messages=[
                 {"role": "system", "content": system_prompt}
             ] + history,
@@ -67,11 +62,10 @@ Rules:
 
     except Exception as e:
         print("GROQ ERROR:", str(e))
-    return jsonify({"reply": str(e)})
+        reply = "temporary server issue 😅 try again"
 
     history.append({"role": "assistant", "content": reply})
 
     return jsonify({"reply": reply})
-
 if __name__ == "__main__":
     app.run()
