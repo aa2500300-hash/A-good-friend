@@ -13,7 +13,6 @@ body {
   color: white;
 }
 
-/* Sidebar */
 .sidebar {
   width: 30%;
   background: #111b21;
@@ -37,18 +36,12 @@ body {
   border-radius: 50%;
 }
 
-.chat-item div {
-  margin-left: 10px;
-}
-
-/* Chat area */
 .chat-container {
   width: 70%;
   display: flex;
   flex-direction: column;
 }
 
-/* Header */
 .header {
   display: flex;
   align-items: center;
@@ -61,16 +54,11 @@ body {
   border-radius: 50%;
 }
 
-.header .info {
-  margin-left: 10px;
-}
-
 .status {
   font-size: 12px;
   color: #00a884;
 }
 
-/* Messages */
 #chat {
   flex: 1;
   overflow-y: auto;
@@ -100,7 +88,6 @@ body {
   opacity: 0.6;
 }
 
-/* Footer */
 .footer {
   display: flex;
   padding: 10px;
@@ -134,7 +121,7 @@ button {
 <div class="chat-container">
   <div class="header">
     <img id="avatar">
-    <div class="info">
+    <div>
       <div id="name"></div>
       <div class="status" id="status">online</div>
     </div>
@@ -165,7 +152,6 @@ let chats = {
 
 let current = "Aisha";
 
-/* Sidebar */
 let sidebar = document.getElementById("sidebar");
 for (let name in characters){
   sidebar.innerHTML += `
@@ -175,7 +161,6 @@ for (let name in characters){
     </div>`;
 }
 
-/* Switch */
 function switchChat(name){
   current = name;
   document.getElementById("name").innerText = name;
@@ -183,17 +168,14 @@ function switchChat(name){
   loadChat();
 }
 
-/* Load chat */
 function loadChat(){
   let chatDiv = document.getElementById("chat");
   chatDiv.innerHTML = "";
-
   chats[current].forEach(m => {
     chatDiv.innerHTML += messageHTML(m.text, m.type, m.time);
   });
 }
 
-/* Message UI */
 function messageHTML(text, type, time){
   return `
   <div class="msg ${type}">
@@ -202,13 +184,11 @@ function messageHTML(text, type, time){
   </div>`;
 }
 
-/* Time */
 function getTime(){
   let d = new Date();
   return d.getHours()+":"+("0"+d.getMinutes()).slice(-2);
 }
 
-/* Enter send */
 function handleKey(e){
   if(e.key === "Enter" && !e.shiftKey){
     e.preventDefault();
@@ -216,7 +196,7 @@ function handleKey(e){
   }
 }
 
-/* 🔥 MAIN FIXED SEND FUNCTION */
+/* 🔥 FINAL SEND FUNCTION */
 async function send(){
   let input = document.getElementById("msg");
   let msg = input.value.trim();
@@ -231,43 +211,48 @@ async function send(){
 
   let typing = document.createElement("div");
   typing.className = "msg bot";
-  typing.innerText = "typing...";
+  typing.innerText = "waking up server 😴...";
   chatDiv.appendChild(typing);
 
-  document.getElementById("status").innerText = "typing...";
+  document.getElementById("status").innerText = "connecting...";
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000); // 30 sec max
+  let attempts = 0;
 
-    let res = await fetch("https://a-good-friend.onrender.com/chat", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({message:msg, character:current}),
-      signal: controller.signal
-    });
+  while(attempts < 3){
+    try {
+      let res = await fetch("https://a-good-friend.onrender.com/chat", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({message:msg, character:current})
+      });
 
-    clearTimeout(timeout);
+      let data = await res.json();
 
-    let data = await res.json();
+      typing.remove();
+      document.getElementById("status").innerText = "online";
 
-    typing.remove();
-    document.getElementById("status").innerText = "online";
+      let replyTime = getTime();
 
-    let replyTime = getTime();
+      chats[current].push({type:"bot", text:data.reply, time:replyTime});
+      chatDiv.innerHTML += messageHTML(data.reply,"bot",replyTime);
 
-    chats[current].push({type:"bot", text:data.reply, time:replyTime});
-    chatDiv.innerHTML += messageHTML(data.reply,"bot",replyTime);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+      return;
 
-  } catch (err) {
-    typing.innerText = "Server sleeping 😴 try again...";
-    document.getElementById("status").innerText = "offline";
+    } catch (err) {
+      attempts++;
+      typing.innerText = `waking up server 😴 (${attempts}/3)...`;
+      await new Promise(r => setTimeout(r, 8000));
+    }
   }
 
-  chatDiv.scrollTop = chatDiv.scrollHeight;
+  typing.innerText = "Server busy 😔 try again later";
+  document.getElementById("status").innerText = "offline";
 }
 
-/* Init */
+/* 🔥 PRE-WAKE SERVER */
+fetch("https://a-good-friend.onrender.com");
+
 switchChat("Aisha");
 </script>
 
