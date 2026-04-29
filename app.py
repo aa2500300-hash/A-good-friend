@@ -1,47 +1,24 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
 import os
+from groq import Groq
 
 app = Flask(__name__)
 CORS(app)
 
-# 🔑 Hugging Face API
-HF_API_KEY = os.environ.get("HF_API_KEY")
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-
-def query(payload):
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response.json()
-
-# 🔥 Character personalities (with emotes)
+# Character personalities
 def get_character_prompt(name):
     profiles = {
-        "Aisha": """You are Aisha.
-Fun, friendly, playful.
-Speak in Hinglish.
-Sometimes use (smiles), (laughs).""",
-
-        "Riya": """You are Riya.
-Shy, sweet, soft.
-Speak simple Hinglish.
-Sometimes use (hesitates), (smiles).""",
-
-        "Neha": """You are Neha.
-Bold, teasing, confident.
-Speak playfully.
-Sometimes use (smirks), (laughs).""",
-
-        "Sara": """You are Sara.
-Calm, emotional, mature.
-Speak thoughtfully.
-Sometimes use (sighs), (smiles)."""
+        "Aisha": "You are Aisha, fun, flirty, playful girl. Speak casual Hinglish. Use emotions.",
+        "Riya": "You are Riya, shy, cute, soft spoken. Use simple words.",
+        "Neha": "You are Neha, bold, teasing, confident. Talk directly.",
+        "Sara": "You are Sara, calm, emotional, mature."
     }
-    return profiles.get(name, "You are chatting casually.")
+    return profiles.get(name, "You are a human chatting casually.")
 
-# 🧠 Memory per character
+# Memory
 memory = {
     "Aisha": [],
     "Riya": [],
@@ -49,12 +26,9 @@ memory = {
     "Sara": []
 }
 
-# 🧠 User memory
-user_data = {}
-
 @app.route("/")
 def home():
-    return "Backend running"
+    return "Server running"
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -64,97 +38,39 @@ def chat():
 
     history = memory[character]
 
-    # 🔍 Save name
-    if "my name is" in user_msg.lower():
-        user_data["name"] = user_msg.split("is")[-1].strip()
+    # Add user msg
+    history.append({"role": "user", "content": user_msg})
+    history[:] = history[-6:]
 
-    extra_memory = ""
-    if "name" in user_data:
-        extra_memory = f"The user's name is {user_data['name']}."
-
-    # 👤 Add user message
-    history.append({
-        "role": "user",
-        "content": f"User: {user_msg}"
-    })
-
-    history[:] = history[-5:]  # keep it short for speed
-
-    # 🔥 STRONG PROMPT (NO AI BEHAVIOR)
     system_prompt = f"""
-You are {character}.
+You are {character}. You are a real human girl chatting casually.
 
-You are a REAL human chatting on WhatsApp.
-NOT an AI.
-
-STRICT RULES:
+Rules:
 - Never say you are AI
-- Never say "how can I help"
-- Never act like assistant
-- Never ask and answer your own question
-- Never simulate both sides
-
-STYLE:
-- Short replies (1 line mostly)
-- Hinglish casual tone
-- Natural texting
-- Sometimes use actions like (smiles), (laughs)
-- Not in every message
-
-GOOD:
-"haha acha 😄"
-"(smiles) nicee"
-"tum kya kar rahe ho"
-
-BAD:
-"What brings you here"
-"How may I assist"
-
-You are talking to a USER.
-Only reply as {character}.
-{extra_memory}
+- Never ask generic assistant questions
+- Do NOT answer for the user
+- Keep replies short (1-2 lines)
+- Use natural texting style
 """
 
-    # 🧠 Build prompt (Hugging Face uses plain text, not chat format)
-    full_prompt = system_prompt + "\n"
-
-    for msg in history:
-        full_prompt += msg["content"] + "\n"
-
-    full_prompt += f"{character}:"
-
-    # 🤖 Call Hugging Face
-    result = query({
-        "inputs": full_prompt,
-        "parameters": {
-            "max_new_tokens": 80,
-            "temperature": 0.9,
-            "return_full_text": False
-        }
-    })
-
     try:
-        reply = result[0]["generated_text"].strip()
-    except:
-        reply = "(smiles) thoda slow lag raha hai 😅 try again"
+        response = client.chat.completions.create(
+            model="llama3-8b-8192",  # 🔥 fast model
+            messages=[
+                {"role": "system", "content": system_prompt}
+            ] + history,
+            temperature=0.9,
+            max_tokens=120
+        )
 
-    # 🧹 Clean bad outputs
-    bad_phrases = [
-        "how can i help",
-        "what brings you",
-        "as an ai",
-        "user:"
-    ]
+        reply = response.choices[0].message.content
 
-    if any(p in reply.lower() for p in bad_phrases):
-        reply = "(smiles) acha... tum batao na 😄"
+    except Exception as e:
+        reply = "hmm something broke 😅 try again"
 
-    # 💾 Save reply
-    history.append({
-        "role": "assistant",
-        "content": f"{character}: {reply}"
-    })
+    history.append({"role": "assistant", "content": reply})
 
     return jsonify({"reply": reply})
 
-app.run(host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run()
