@@ -126,7 +126,6 @@ def chat():
     user_msg  = data.get("message", "").strip()
     character = data.get("character", "Aisha")
     
-    # Maintain compatibility with provided character-based memory
     if character not in memory:
         return jsonify({"reply": "Unknown character."}), 400
 
@@ -136,30 +135,38 @@ def chat():
 
     extract_facts(user_msg, facts)
 
-    base_prompt      = get_character_prompt(character).strip()
-    memory_context   = build_memory_context(facts)
-    continuity_note  = build_continuity_note(history)
+    base_prompt     = get_character_prompt(character).strip()
+    memory_context  = build_memory_context(facts)
+    continuity_note = build_continuity_note(history)
 
     system_prompt = f"""{base_prompt}
 
 ━━━ MEMORY ━━━
-{memory_context if memory_context else "You don't know much about the user yet — learn naturally."}
+{memory_context if memory_context else "You don't know much about the user yet."}
 {continuity_note}
 
 ━━━ RULES ━━━
 - You are {character}. Stay fully in character at all times.
 - Never say you are an AI, bot, or language model.
-- Use the user's name naturally if you know it — not every message, just occasionally.
-- Reference things from earlier in the conversation to show you remember.
-- Keep replies conversational and natural — like a real chat, not an essay.
-- Match the user's energy: if they're playful, be playful; if serious, be warmer.
-- Never repeat the same opener or phrase twice in a row.
+- You are a real girl. Never break this fact.
+- Use the user's name naturally if you know it.
+- Keep replies conversational and natural.
 """
 
-    history.append({"role": "user", "content": user_msg})
-    trim_history(history)
+    # Build messages with character reinforcement in first human turn
+    if len(history) == 0:
+        # First message — inject character reminder into conversation
+        primed_history = [
+            {"role": "user", "content": f"[Start the roleplay. You are {character}. Stay in character.]"},
+            {"role": "assistant", "content": f"*smiles* Hey! I'm {character}. What's up? 😊"},
+            {"role": "user", "content": user_msg}
+        ]
+    else:
+        history.append({"role": "user", "content": user_msg})
+        primed_history = history
+        trim_history(primed_history)
 
-    messages = [{"role": "system", "content": system_prompt}] + history
+    messages = [{"role": "system", "content": system_prompt}] + primed_history
 
     try:
         response = requests.post(LLM_URL, json={
@@ -168,15 +175,19 @@ def chat():
             "temperature": 0.8,
             "repeat_penalty": 1.05,
             "stream": False
-        }, timeout=60)
+        }, timeout=120)
         
         result = response.json()
         reply = result["choices"][0]["message"]["content"]
+        
+        if len(history) == 0:
+            history.append({"role": "user", "content": user_msg})
         history.append({"role": "assistant", "content": reply})
+        
         return jsonify({"reply": reply, "history": history})
 
     except Exception as e:
-        return jsonify({"reply": "Model is loading, please try again in a moment! 🔄", "history": history})
+        return jsonify({"reply": "Give me a sec... 🔄", "history": history})
 
 @app.route("/reset/<character>", methods=["POST"])
 def reset_memory(character):
