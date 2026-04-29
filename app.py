@@ -66,7 +66,8 @@ Rules:
         reply = response.choices[0].message.content
 
     except Exception as e:
-        reply = "hmm something broke 😅 try again"
+        print("GROQ ERROR:", str(e))
+    return jsonify({"reply": str(e)})
 
     history.append({"role": "assistant", "content": reply})
 
